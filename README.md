@@ -1,5 +1,5 @@
 # part2
-# Develop a Computer Aided Diagnosis System for Skin Lesions using a CNN
+# Develop a Computer Aided Diagnosis System for Skin Lesions
 
 Binary and multi-class classification using a dataset with 10.000 images, categorized by experts into seven classes of lesions
 
