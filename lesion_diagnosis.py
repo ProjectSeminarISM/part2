@@ -18,15 +18,19 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         # Define architecture
-        self.features = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, stride=2, bias=False, padding=2),
+        self.features = nn.Sequential(nn.Conv2d(3, 16, kernel_size=5, stride=2, bias=False, padding=2),
                                       nn.BatchNorm2d(16),
                                       nn.ReLU(),
                                       nn.Conv2d(16, 32, kernel_size=5, stride=2, bias=False, padding=2),
                                       nn.BatchNorm2d(32),
+                                      nn.ReLU(),
+                                      nn.Conv2d(32, 64, kernel_size=5, stride=2, bias=False, padding=2),
+                                      nn.BatchNorm2d(64),
                                       nn.ReLU())
+
         # Classifier
-        self.gap = nn.AvgPool2d(7, 1)
-        self.classifier = nn.Linear(32, 10)
+        self.gap = nn.AvgPool2d(9, 7)
+        self.classifier = nn.Linear(32, 7)
 
     def forward(self, x):
         x = self.features(x)
@@ -50,7 +54,7 @@ class HAMDataset(Dataset):
 
         # get labels
         self.labels = pd.factorize(data.dx)[0]
-        # self.label_names = pd.factorize(data.dx[1])
+        self.label_names = pd.factorize(data.dx)[1]
         # get images
         self.im_paths = []
         for i in range(data.shape[0]):
@@ -65,7 +69,11 @@ class HAMDataset(Dataset):
 
     def __getitem__(self, idx):
         # get image
-        x = np.expand_dims(np.asarray(Image.open(self.im_paths[idx]).convert('L')),2)
+        # x = np.expand_dims(np.asarray(Image.open(self.im_paths[idx]).convert('L')), 2)
+        # x = np.asarray(Image.open(self.im_paths[idx]))
+        # open image and crop centered
+        x = transforms.functional.crop(Image.open(self.im_paths[idx]), 0, 75, 450, 450)
+        #x = np.expand_dims(np.asarray(x), 2)
         # get label
         y = self.labels[idx]
         # preprocessing & data augmentation
@@ -126,9 +134,9 @@ def test(model, device, test_loader, loss_function):
 if __name__ == '__main__':
     # get dataset for testing and validation
     train_set = HAMDataset('data', 'training')
-    train_loader = DataLoader(train_set, batch_size=500, shuffle=True, pin_memory=True)
+    train_loader = DataLoader(train_set, batch_size=32, shuffle=True, pin_memory=True)
     dev_set = HAMDataset('data', 'validation')
-    dev_loader = DataLoader(dev_set, batch_size=500, shuffle=False, pin_memory=True)
+    dev_loader = DataLoader(dev_set, batch_size=32, shuffle=False, pin_memory=True)
     # define device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # define loss
