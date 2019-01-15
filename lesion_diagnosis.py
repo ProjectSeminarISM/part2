@@ -35,6 +35,7 @@ class Net(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = torch.squeeze(self.gap(x))
+        x = x.view(-1, x.size(0))
         x = self.classifier(x)
         return x
 
