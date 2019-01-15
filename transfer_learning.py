@@ -140,7 +140,7 @@ class Model:
                 loss.backward()
                 self.optimizer.step()
                 _, predicted = torch.max(outputs, 1)
-                correct += (predicted == labels).sum()
+                correct += (predicted == labels).sum().item()
                 """
                 # save to DataFrame
                 df = df.append(
@@ -148,8 +148,8 @@ class Model:
                     ignore_index=True)
                 """
 
-            train_acc = 100 * correct.item() / len(self.train_loader.dataset)
-            print('Epoch [{}/{}], Loss: {:.4f}, Train Accuracy: {}%'
+            train_acc = 100 * correct / len(self.train_loader.dataset)
+            print('Epoch [{}/{}], Loss: {:.4f}, Train Accuracy: {:.4f}%'
                   .format(epoch + 1, self.num_epochs, loss.item(), train_acc))
             # save model for every epoch
             print('[*] Saving model to {}'.format(self.train_loader.dataset.ckpt_dir))
@@ -172,6 +172,7 @@ class Model:
             # distinguish best model and save separately
             if train_acc > best_acc:
                 print('[*] ==== Best Acc Achieved ====')
+                best_acc = train_acc
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': self.model.state_dict(),
@@ -188,7 +189,7 @@ class Model:
             total = 0
             image_id = []
             df = pd.DataFrame()
-            for images, labels, path in self.val_loader:
+            for idx, (images, labels, path) in enumerate(self.val_loader):
                 images = Variable(images)
                 labels = Variable(labels)
                 for i in range(len(path)):
@@ -198,10 +199,20 @@ class Model:
                     labels = labels.cuda()
 
                 outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                curr_loss = self.criterion(outputs, labels)
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+
+                if idx == 0:
+                    predictions = predicted.data.cpu().numpy()
+                    targets = labels.data.cpu().numpy()
+                    loss = np.array([curr_loss.data.cpu().numpy()])
+                else:
+                    predictions = np.concatenate((predictions, predicted.data.cpu().numpy()))
+                    targets = np.concatenate((targets, labels.data.cpu().numpy()))
+                    loss = np.concatenate((loss, np.array([curr_loss.data.cpu().numpy()])))
+
                 # save to DataFrame
                 df = df.append(
                     pd.DataFrame(data=np.apply_along_axis(self.softmax, 1, outputs.cpu().detach().numpy())),
@@ -216,13 +227,12 @@ class Model:
             df_classes.to_csv(os.path.join(self.train_loader.dataset.output_dir, 'prob_table.csv'), index=False)
 
             # Calculate metrics
-            accuracy = np.mean(np.equal(predicted, labels))
-            conf_mat = confusion_matrix(labels, predicted)
+            accuracy = np.mean(np.equal(predictions, targets))
+            conf_mat = confusion_matrix(targets, predictions)
             sensitivity = conf_mat.diagonal() / conf_mat.sum(axis=1)
 
             # Print metrics
             print("Test Accuracy", accuracy, "Test Sensitivity", np.mean(sensitivity), "Test loss", np.mean(loss))
-            print('Test Accuracy: {:.3f} %'.format(100 * correct / total))
 
     def show_img(self):
         # Visualize some predictions
@@ -265,6 +275,6 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_dataset, batch_size=500, shuffle=True)
     val_dataset = Config('data/lesion_data_multiclass/val')
     val_loader = DataLoader(val_dataset, batch_size=500, shuffle=True)
-    m = Model(train_loader, val_loader, epochs=1)
+    m = Model(train_loader, val_loader, epochs=30)
     m.train()
     m.test()
