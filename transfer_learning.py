@@ -143,7 +143,6 @@ class Model:
             print('Epoch [{}/{}], Loss: {:.4f}, Train Accuracy: {:.4f}%'
                   .format(epoch + 1, self.num_epochs, loss.item(), train_acc))
             # save model for every epoch
-            print('[*] Saving model to {}'.format(self.train_loader.dataset.ckpt_dir))
             self.save(epoch, loss, 'ckpt.pth.tar')
             # save best model separately
             if train_acc > best_acc:
