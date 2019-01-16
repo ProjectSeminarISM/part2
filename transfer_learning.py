@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from progressbar import *
 from torch.optim import lr_scheduler
 from torch.utils.data import Dataset, DataLoader
 import torchvision
@@ -18,67 +19,34 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class Config(datasets.ImageFolder):
     def __init__(self, data_dir):
-        # Data augmentation and normalization for training
-        # Just normalization for validation
-        """
-        self.data_transforms = {
-            'train': transforms.Compose([
-                # transforms.RandomResizedCrop(224),
-                transforms.CenterCrop(224),
-                # transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
-            'val': transforms.Compose([
-                # transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
-        }
-        """
+        # data augmentation and normalization
         self.data_transform = transforms.Compose([
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
-                # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ])
-
+        # directories
         self.data_dir = data_dir
         self.ckpt_dir = os.path.join(os.path.split(data_dir)[:-1][0], 'checkpoints')
         self.output_dir = os.path.join(os.path.split(data_dir)[:-1][0], 'output')
-        # Create a dictionary that contains the information of the images in both the training and validation set
-        """
-        self.image_datasets = {x: datasets.ImageFolder(os.path.join(self.data_dir, x), self.data_transforms[x])
-                               for x in ['train', 'val']}
-        """
+        # get image dataset
         self.image_dataset = datasets.ImageFolder(self.data_dir, self.data_transform)
-        """
-        # Create a dictionary that contains the data loader
-        self.dataloader= {x: torch.utils.data.DataLoader(self.image_datasets[x], batch_size=4, shuffle=True)
-                           for x in ['train', 'val']}
-        """
-        # Create a dictionary that contains the size of each dataset (training and validation)
-        """
-        self.dataset_sizes = {x: len(self.image_datasets[x]) for x in ['train', 'val']}
-        """
+        # get length of dataset
         self.dataset_size = len(self.image_dataset)
-        # Get the class names
+        # get class names
         self.class_names = self.image_dataset.classes
-        # Print out the results
+        # print out the results
         print("Class Names: {}".format(self.class_names))
-        # print("{} batches in the training set".format(len(self.dataloader['train'])))
-        # print("{} batches in the test set".format(len(self.dataloader['val'])))
         print("{} training images".format(self.dataset_size))
-        # print("{} testing images".format(self.dataset_sizes['val']))
 
     def __len__(self):
         return self.dataset_size
 
+    # custom getter to return path
     def __getitem__(self, idx):
         path, label = self.image_dataset.imgs[idx]
         sample = self.image_dataset.loader(path)
         sample = self.data_transform(sample)
-        # return super(Config, self).__getitem__(idx), self.imgs[idx]
         return sample, label, path
 
 
@@ -89,121 +57,133 @@ class Model:
         self.num_epochs = epochs
 
         # Load the ResNet
-        self.model = torchvision.models.resnet18(pretrained=True)
+        self.model = torchvision.models.resnet152(pretrained=True)
 
         # Freeze all layers in the network
         for param in self.model.parameters():
             param.requires_grad = False
 
-        # Get the number of inputs of the last layer (or number of neurons in the layer preceeding the last layer)
+        # Get the number of inputs of the last layer
         num_ftrs = self.model.fc.in_features
         # Reconstruct the last layer (output layer) to have seven classes
         self.model.fc = nn.Linear(num_ftrs, 7)
         # get class indices
         self.model.class_to_idx = self.val_loader.dataset.image_dataset.class_to_idx
-
+        # use gpu if available
         if torch.cuda.is_available():
             self.model = self.model.cuda()
-
+        # define loss
         self.criterion = nn.CrossEntropyLoss()
+        # define optimizer
         # self.optimizer = optim.SGD(model.fc.parameters(), lr=0.001, momentum=0.9)
         self.optimizer = optim.Adam(self.model.fc.parameters(), lr=0.001)
-
-        # Decay LR by a factor of 0.1 every 7 epochs
+        # Decay learning rate by a factor of 0.1 every 7 epochs
         self.exp_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
+
+        # init progressbar
+        self.widgets = ['Progress: ', Percentage(), ' ', Bar(marker='=', left='[', right=']'), ' ', ETA(), ' ',
+                        FileTransferSpeed()]
 
     def softmax(self, x):
         return np.exp(x) / np.sum(np.exp(x))
 
+    def save(self, epoch, loss, name):
+        print('[*] Saving model to {}'.format(self.train_loader.dataset.ckpt_dir))
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'class_to_idx': self.model.class_to_idx,
+            'loss': loss,
+        }, os.path.join(self.train_loader.dataset.ckpt_dir, name))
+
+    def load(self, name):
+        checkpoint = torch.load(os.path.join(self.train_loader.dataset.ckpt_dir, name))
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+        return epoch, loss
+
     def train(self):
         best_acc = 0.0
-        # image_id = []
-        # df = pd.DataFrame()
         for epoch in range(self.num_epochs):
             self.exp_lr_scheduler.step()
             # Reset the correct to 0 after passing through all the dataset
             correct = 0
-            for images, labels, _ in self.train_loader:
+            # show progress in loop
+            progress = ProgressBar(widgets=self.widgets, maxval=len(self.train_loader))
+            progress.start()
+            # repeat for all batches
+            for idx, (images, labels, _) in enumerate(self.train_loader):
                 images = Variable(images)
                 labels = Variable(labels)
-                """
-                for i in range(len(path)):
-                    image_id.append(os.path.splitext(os.path.split(path[i])[-1])[0])
-                """
+                # push to gpu
                 if torch.cuda.is_available():
                     images = images.cuda()
                     labels = labels.cuda()
 
                 self.optimizer.zero_grad()
+                # get outputs of model
                 outputs = self.model(images)
+                # calculate loss
                 loss = self.criterion(outputs, labels)
                 loss.backward()
+                # optimization step
                 self.optimizer.step()
+                # get labels in batch input
                 _, predicted = torch.max(outputs, 1)
+                # sum all correctly predicted labels
                 correct += (predicted == labels).sum().item()
-                """
-                # save to DataFrame
-                df = df.append(
-                    pd.DataFrame(data=np.apply_along_axis(self.softmax, 1, outputs.cpu().detach().numpy())),
-                    ignore_index=True)
-                """
-
+                # update progress
+                progress.update(idx)
+            progress.finish()
+            # calculate accuracy
             train_acc = 100 * correct / len(self.train_loader.dataset)
             print('Epoch [{}/{}], Loss: {:.4f}, Train Accuracy: {:.4f}%'
                   .format(epoch + 1, self.num_epochs, loss.item(), train_acc))
             # save model for every epoch
             print('[*] Saving model to {}'.format(self.train_loader.dataset.ckpt_dir))
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'class_to_idx': self.model.class_to_idx,
-                'loss': loss,
-            }, os.path.join(self.train_loader.dataset.ckpt_dir, 'ckpt.pth.tar'))
-            """
-            # change idx to class names, rename df, add image_ids, arrange correctly and sort by im_ids
-            idx_to_class = {val: key for key, val in self.model.class_to_idx.items()}
-            df_classes = df.rename(idx_to_class, axis=1)
-            df_classes['image'] = image_id
-            df_classes = df_classes[['image', 'mel', 'nv', 'bcc', 'akiec', 'bkl', 'df', 'vasc']]
-            df_classes = df_classes.sort_values(by='image')
-            df_classes.to_csv(os.path.join(self.config.data_dir, 'output', 'outputs.csv'), index=False)
-            """
-            # distinguish best model and save separately
+            self.save(epoch, loss, 'ckpt.pth.tar')
+            # save best model separately
             if train_acc > best_acc:
                 print('[*] ==== Best Acc Achieved ====')
                 best_acc = train_acc
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'class_to_idx': self.model.class_to_idx,
-                    'loss': loss,
-                }, os.path.join(self.train_loader.dataset.ckpt_dir, 'best_model.pth.tar'))
-                # df_classes.to_csv(os.path.join(self.config.data_dir, 'output', 'best_outputs.csv'), index=False)
+                self.save(epoch, loss, 'best_model.pth.tar')
 
     def test(self):
         self.model.eval()
         with torch.no_grad():
             correct = 0
             total = 0
+            # for saving the correlating image ids to the outputs
             image_id = []
+            # for saving the probabilities
             df = pd.DataFrame()
+            # show progress in loop
+            progress = ProgressBar(widgets=self.widgets, maxval=len(self.val_loader))
+            progress.start()
+            # repeat for all batches
             for idx, (images, labels, path) in enumerate(self.val_loader):
                 images = Variable(images)
                 labels = Variable(labels)
+                # get image ids from path
                 for i in range(len(path)):
                     image_id.append(os.path.splitext(os.path.split(path[i])[-1])[0])
+                # push to gpu
                 if torch.cuda.is_available():
                     images = images.cuda()
                     labels = labels.cuda()
-
+                # get outputs
                 outputs = self.model(images)
+                # calculate loss
                 curr_loss = self.criterion(outputs, labels)
+                # get predicted labels
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
+                # sum all correctly predicted labels
                 correct += (predicted == labels).sum().item()
-
+                # for evaluation issues save predictions, labels and losses in 1D array
                 if idx == 0:
                     predictions = predicted.data.cpu().numpy()
                     targets = labels.data.cpu().numpy()
@@ -212,26 +192,31 @@ class Model:
                     predictions = np.concatenate((predictions, predicted.data.cpu().numpy()))
                     targets = np.concatenate((targets, labels.data.cpu().numpy()))
                     loss = np.concatenate((loss, np.array([curr_loss.data.cpu().numpy()])))
-
+                # update progress
+                progress.update(idx)
                 # save to DataFrame
                 df = df.append(
                     pd.DataFrame(data=np.apply_along_axis(self.softmax, 1, outputs.cpu().detach().numpy())),
                     ignore_index=True)
-
-            # change idx to class names, rename df, add image_ids, arrange correctly and sort by im_ids
+            progress.finish()
+            # change indices to class names
             idx_to_class = {val: key for key, val in self.model.class_to_idx.items()}
             df_classes = df.rename(idx_to_class, axis=1)
+            # add image ids
             df_classes['image'] = image_id
+            # change order
             df_classes = df_classes[['image', 'mel', 'nv', 'bcc', 'akiec', 'bkl', 'df', 'vasc']]
+            # sort by image id
             df_classes = df_classes.sort_values(by='image')
+            # and save to csv file
             df_classes.to_csv(os.path.join(self.train_loader.dataset.output_dir, 'prob_table.csv'), index=False)
 
-            # Calculate metrics
+            # calculate metrics
             accuracy = np.mean(np.equal(predictions, targets))
             conf_mat = confusion_matrix(targets, predictions)
             sensitivity = conf_mat.diagonal() / conf_mat.sum(axis=1)
 
-            # Print metrics
+            # print metrics
             print("Test Accuracy", accuracy, "Test Sensitivity", np.mean(sensitivity), "Test loss", np.mean(loss))
 
     def show_img(self):
@@ -271,10 +256,17 @@ class Model:
 
 
 if __name__ == '__main__':
+    # training data
     train_dataset = Config('data/lesion_data_multiclass/train')
     train_loader = DataLoader(train_dataset, batch_size=500, shuffle=True)
+    # validation data
     val_dataset = Config('data/lesion_data_multiclass/val')
     val_loader = DataLoader(val_dataset, batch_size=500, shuffle=True)
-    m = Model(train_loader, val_loader, epochs=30)
+
+    m = Model(train_loader, val_loader, epochs=100)
+    # load existing model
+    # m.load('best_model_lr01_adam_resnet152.pth.tar')
+    # train new model
     m.train()
+    # test model
     m.test()
