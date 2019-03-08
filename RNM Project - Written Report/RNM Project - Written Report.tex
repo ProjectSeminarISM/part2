@@ -362,13 +362,13 @@
 % not capitalized unless they are the first or last word of the title.
 % Linebreaks \\ can be used within to get better formatting as desired.
 % Do not put math or special symbols in the title.
-\title{Group Project: Image Guided \\Robotic Transcranial Magnetic Stimulation}
+\title{Group Project:Computer Aided \\Diagnosis System for Skin Lesion}
 
 
 % author names and affiliations
 % use a multiple column layout for up to three different
 % affiliations
-\author{\IEEEauthorblockN{Christopher Göthel, Gunnar Maerker, Fabian Sabljak, \\Jan-Philipp Scheel, Aashik Udupi}
+\author{\IEEEauthorblockN{Malte Seemann, Fabian Sabljak, Lukas Gerwers, \\Satyam Taorem}
 \IEEEauthorblockA{Institute of Medical Technology at Hamburg University of Technology,\\ Am Schwarzenberg-Campus 3, 21073 Hamburg, Germany}
 }
 
@@ -409,7 +409,7 @@
 % As a general rule, do not put math, special symbols or citations
 % in the abstract
 \begin{abstract}
-This report contains the results and approaches of the group work on the project of "Robotics and Navigation in Medicine". The task was to support transcranial magnetic stimulation (TMS) by a vision-guided robot which should compensate head movement. 
+This report contains the results and approaches of the group work on the project of "Intelligent Systems in Medicine". The task was to develop a Computer aided diagnosis system to diagnose Skin Lesion for possibility of Cancerous cell. 
 \end{abstract}
 
 % no keywords
@@ -431,7 +431,7 @@ This report contains the results and approaches of the group work on the project
 
 \section{Introduction}
 % no \IEEEPARstart
-Transcranial magnetic stimulation is used as a therapeutic and diagnostic technique. A magnetic coil needs to be placed for stimulation of a specific cortex. Therefore, compensation of patient movement is needed. During the group project, we developed a motion compensation system which is based on ROS and used both C++ and Python.
+Diagnosis of Skin Lesion is very necessary to identify cancerous cell at the early stage. Cancerous cells can be treated if identified at an early stage. During the group project, we developed a Computer aided diagnositic system for skin lesion which is based on Machine Learning and Neural Networks. We programmed the system in Python using various libraries such as numpy, pandas, seaborn, scikit-learn, and pytorch.
 
 
 
@@ -531,8 +531,8 @@ Transcranial magnetic stimulation is used as a therapeutic and diagnostic techni
 
 
 \section{Tasks}
-In this report, we will follow the structure of the project. It was sectioned into four parts: The kinematics of the robot, the calibration of the camera, the head pose estimation and the head movement compensation.
-\subsection{Robot Kinematics - AU, GM}
+In this report, we will follow the structure of the project. It was sectioned into three phases of the project: System based on Machine Learning algorithms, System based on Deep Learning using pytorch and Diagnosis of Lesions on our own skin.
+\subsection{First Phase - Machine Learning Algorithms}
 In transcranial magnetic simulation procedure, for effective therapy, the motion of the head must be compensated by moving the magnetic coil held by the robot end-effector. Thus, understanding the robot motion is crucial in solving such a task. This is possible by solving the direct kinematics and inverse kinematics of the robot. \\
 
 \subsubsection{Direct Kinematics}
@@ -556,7 +556,7 @@ The best possible joint angles of the 8 possible combinations are chosen by calc
 \Delta\theta_j(i) = \left| \theta_{j,current}-\theta_j(i) \right|
 \end{align*}
 Then the set of joint angles resulting in the least overall difference is chosen. This results in a more efficient transition of the robot between poses. 
-\subsubsection{Implementation in ROS}
+\subsubsection{Second Phase - Deep Learning Algorithms}
 The overall task was implemented in ROS (Robot Operating System, a convenient middleware to control robots) since this brings many advantages: The overall program consist of multiple sub-programs called nodes, which can be programmed separately in different languages and communicate in a standardized way via ROS messages under certain so-called topics.\\
 The implementation of kinematics was programmed in C++ and consists basically of two nodes, \textit{Direct Kinematics} and \textit{Inverse Kinematics}. There are principally two use cases: The Calibration (as needed for Task 2, marked in red) and the Head Movement Compensation (as needed for Task 4, marked in blue). Both use cases with their corresponding communication are illustrated in Figure \ref{fig:Nodes}. Nodes and objects which are needed in both use cases are marked in white.  The Direct Kinematics are used within the Calibration to get the current pose from the current joint angles. The Inverse Kinematics are used to calculate the desired joint angles for a desired position, which is given by either the Calibration or the Head Motion Compensation. Furthermore, we added one node called \textit{Move To Desired Angles}, which uses the result of the inverse kinematics and communicates this as a goal to the robot.\\
 \begin{figure}[h]
